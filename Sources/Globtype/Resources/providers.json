@@ -1,0 +1,13 @@
+[
+  { "id": "deepseek", "name": "DeepSeek", "baseURL": "https://api.deepseek.com", "model": "deepseek-chat", "protocol": "openai", "requiresKey": true, "note": "推荐，中文理解好，国内直连" },
+  { "id": "qwen", "name": "通义千问", "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus", "protocol": "openai", "requiresKey": true, "note": "阿里云百炼，国内直连" },
+  { "id": "kimi", "name": "Kimi", "baseURL": "https://api.moonshot.cn/v1", "model": "kimi-latest", "protocol": "openai", "requiresKey": true, "note": "月之暗面，国内直连" },
+  { "id": "zhipu", "name": "智谱 GLM", "baseURL": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-flash", "protocol": "openai", "requiresKey": true, "note": "国内直连" },
+  { "id": "siliconflow", "name": "硅基流动", "baseURL": "https://api.siliconflow.cn/v1", "model": "deepseek-ai/DeepSeek-V3", "protocol": "openai", "requiresKey": true, "note": "一个 Key 使用多种开源模型" },
+  { "id": "openai", "name": "OpenAI", "baseURL": "https://api.openai.com/v1", "model": "gpt-4o-mini", "protocol": "openai", "requiresKey": true, "note": "需要自行解决网络访问" },
+  { "id": "claude", "name": "Anthropic Claude", "baseURL": "https://api.anthropic.com", "model": "claude-haiku-4-5", "protocol": "anthropic", "requiresKey": true, "note": "需要自行解决网络访问" },
+  { "id": "gemini", "name": "Google Gemini", "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.5-flash", "protocol": "openai", "requiresKey": true, "note": "使用 OpenAI 兼容端点，需要自行解决网络访问" },
+  { "id": "ollama", "name": "Ollama（本地）", "baseURL": "http://localhost:11434/v1", "model": "qwen2.5:7b", "protocol": "openai", "requiresKey": false, "note": "本地运行，数据不出本机" },
+  { "id": "lmstudio", "name": "LM Studio（本地）", "baseURL": "http://localhost:1234/v1", "model": "local-model", "protocol": "openai", "requiresKey": false, "note": "本地运行，模型名填 LM Studio 中加载的模型" },
+  { "id": "custom", "name": "自定义（OpenAI 兼容）", "baseURL": "https://", "model": "", "protocol": "openai", "requiresKey": false, "note": "任意 OpenAI 兼容接口；如需 Key 请填写" }
+]

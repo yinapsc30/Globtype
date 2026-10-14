@@ -1,0 +1,10 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+.DS_Store
+# 由 Scripts/build_dictionary.py 生成
+Sources/Globtype/Resources/dictionary.sqlite
+# 证书备份绝不能提交
+*.p12

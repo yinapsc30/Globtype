@@ -1,0 +1,249 @@
+# 实施计划：Globtype MVP
+
+任务按依赖顺序排列。第 1~4 组对应 M0 技术验证，先确认取词、回填、快捷键在真实 App 中可行，再投入翻译和学习功能。每个任务都引用对应的需求编号，设计细节见 `design.md`。
+
+- [x] 1. 工程脚手架
+  - [x] 1.1 创建 SwiftPM 工程（实施时由 XcodeGen 改为纯 SwiftPM，见 design.md 工程结构）
+    - `Package.swift`：`GlobtypeCore` 库、`Globtype` 可执行、`GlobtypeCoreTests`，最低 macOS 15，零第三方依赖
+    - `Scripts/bundle.sh` 组装 `.app`（`LSUIElement = YES`，Bundle ID `app.globtype.Globtype`），`Scripts/swift-env.sh` 选择工具链
+    - `.gitignore` 排除 `.build/`、`build/`、生成的词典、`.p12`
+    - 添加 MIT `LICENSE`、README（含"系统设置 → 隐私与安全性 → 仍要打开"和 `xattr -dr com.apple.quarantine` 两种放行说明）
+    - 确认 `swift build`、`swift test`、`Scripts/bundle.sh` 均可运行
+    - _需求：13.1、8.8_
+  - [x] 1.2 自签名证书与签名脚本
+    - 编写 `Scripts/create_signing_cert.md`：在钥匙串中创建名为 `Globtype Self-Signed` 的代码签名证书，以及导出 `.p12` 备份的步骤
+    - 编写 `Scripts/release.sh`：Release 构建 → 用该证书 `codesign --force --deep` 签名 → `codesign --verify` 校验 → 打包 zip
+    - _需求：8.7_
+  - [x] 1.3 菜单栏骨架与设置存储
+    - 实现 `MenuBarController`：图标、启用/停用勾选项、设置…、退出
+    - 实现 `SettingsStore`（`@Observable`，基于 `UserDefaults`），先包含 `isEnabled`、`excludedBundleIDs`（默认含 `com.jetbrains.*` 通配规则）
+    - _需求：13.1、13.2、1.7、1.8_
+
+- [x] 2. 权限与全局唤起
+  - [x] 2.1 实现 `DoubleShiftDetector`（Core）
+    - 按设计中的 `KeyInput` 状态机实现，阈值 400ms，左右 Shift 均可
+    - 单元测试：正常双击、超时、中间插入其他键、按住 Shift 输入大写字母、左右混按、随机按键序列属性测试（正确性属性 1）
+    - _需求：1.1、1.2_
+  - [x] 2.2 实现 `PermissionService`
+    - 检查与请求辅助功能（`AXIsProcessTrustedWithOptions`）和输入监控（`CGPreflightListenEventAccess` / `CGRequestListenEventAccess`）权限
+    - 提供打开对应系统设置页的方法，以及可订阅的权限状态（每秒轮询）
+    - 权限缺失时菜单栏图标显示警告角标，菜单顶部出现"修复权限…"
+    - _需求：8.2、8.3_
+  - [x] 2.3 实现 `HotkeyMonitor`
+    - 创建可修改事件的会话级 `CGEventTap`，监听 `flagsChanged`、`keyDown`、鼠标按下；回调轻量化，收到被停用事件时重新启用，连续失败 3 次提示重启
+    - 将事件转换为 `KeyInput` 喂给 `DoubleShiftDetector`
+    - 触发前检查：已启用、前台 App 不在排除列表、`IsSecureEventInputEnabled()` 为假
+    - 权限授予后自动（重新）创建 event tap
+    - _需求：1.1、1.6、1.8、2.2_
+  - [x] 2.4 实现输入法组词状态检测
+    - 在第一次 Shift 按下时，通过 `TISCopyCurrentKeyboardInputSource` 获取当前输入法，再用 `CGWindowListCopyWindowInfo` 判断该输入法进程是否有可见候选窗
+    - 组词状态下本次双击不触发
+    - _需求：1.3_
+
+- [x] 3. TextBridge 取词与回填
+  - [x] 3.1 实现 UTF-16 范围工具（Core）
+    - 提供 `NSRange` 与 Swift `String` 之间的安全转换、按范围截取与替换
+    - 单元测试：含 emoji、中文、组合字符的文本（正确性属性 8）
+    - _需求：3.1、6.1_
+  - [x] 3.2 实现 AX 读取
+    - 获取焦点元素，子角色为 `AXSecureTextField` 时抛出 `.secureField` 并静默忽略
+    - 读取选区范围、选区文本、全文，生成 `SourceSnapshot`（有选区为 `.selection`，否则 `.fullText`）
+    - 获取光标矩形（`kAXBoundsForRangeParameterizedAttribute`）与元素矩形
+    - 所有 AX 调用设置 0.5 秒超时并在后台队列执行
+    - _需求：2.1、3.1、3.2、3.3_
+  - [x] 3.3 支持 Electron / Chromium 应用
+    - 识别 Electron（bundle 内含 `Electron Framework.framework`）与 Chromium 系浏览器
+    - 读取失败时设置 `AXManualAccessibility` / `AXEnhancedUserInterface` 为 true，等待 100ms 重试一次
+    - _需求：3.4_
+  - [x] 3.4 实现剪贴板服务与剪贴板读取降级
+    - `ClipboardService`：完整备份与恢复所有 `NSPasteboardItem`；临时写入附加 `org.nspasteboard.TransientType`、`ConcealedType`；恢复前比较 `changeCount`
+    - AX 读取失败时：模拟 ⌘C，剪贴板未变化则模拟 ⌘A 后再 ⌘C，读取后恢复剪贴板
+    - _需求：3.5_
+  - [x] 3.5 实现回填与校验
+    - AX 回填：全文模式先设置选区为全文，再写 `kAXSelectedTextAttribute`
+    - 失败时剪贴板粘贴降级，300ms 后恢复剪贴板
+    - 回填后重新读取校验，返回 `ReplaceResult`；明确失败时把译文留在剪贴板
+    - 实现 `hasChanged(since:)`（仅 AX 方式）
+    - _需求：6.1、6.2、6.3、6.4、6.5、6.6_
+  - [x] 3.6 实现诊断模式
+    - 菜单栏增加"诊断模式"开关（仅用于开发与兼容性测试）
+    - 开启后双击 Shift：读取源文本，回填为"[GT] + 原文"，并在诊断窗口中记录 App、读取方式、范围、光标矩形是否可得、回填方式、校验结果（不记录文本内容）
+    - 诊断记录可一键复制为 Markdown 表格
+    - _需求：3.1~3.5、6.1~6.6（用于验证）_
+
+- [ ] 4. 检查点：M0 兼容性验证
+  - 确认 `swift test` 全部通过
+  - 请用户用诊断模式运行设计文档中的三个矩阵（App 兼容性、输入法、签名后权限保持），结果记录到 `docs/m0-results.md`
+  - 根据结果建立 App 适配表（如强制剪贴板方式的 App 列表），并回顾设计中的风险表，必要时调整后续任务
+
+- [x] 5. 数据存储与翻译引擎（Core）
+  - [x] 5.1 实现数据库与迁移
+    - 用自研 `SQLiteConnection` + `PRAGMA user_version` 迁移创建 `records`、`expressions`、`record_expressions`、`cards`、`blocked_expressions`、`usage_stats` 表及唯一索引
+    - 为 `records` 建 FTS5 `trigram` 虚拟表与同步触发器
+    - 数据库位置 `~/Library/Application Support/Globtype/globtype.sqlite`；测试使用内存数据库
+    - 单元测试：迁移、FTS 检索（含少于 3 个字符的 LIKE 退回）
+    - _需求：9.5、9.7_
+  - [x] 5.2 实现 `ModeDetector`
+    - 去除 URL、邮箱、@提及、代码片段后按 CJK 字符比例判定，阈值 0.1
+    - 单元测试：纯中文、纯英文、中英混写、只含 URL 或代码
+    - _需求：4.1、4.2、4.3_
+  - [x] 5.3 实现 `StreamParser`
+    - 分隔符 `<<<GLOBTYPE_EXPRESSIONS>>>` 前的内容作为译文增量输出，处理分隔符跨片段；之后内容解析为表达 JSON，失败返回空数组；去除首尾空白与 Markdown 代码块标记
+    - 单元测试：随机切分一致性（正确性属性 2）、缺少分隔符、JSON 损坏
+    - _需求：4.6、4.7_
+  - [x] 5.4 实现 Prompt 构建
+    - 翻译、润色、重新生成（附上一版译文）、讲解四套模板，放在 `Prompts.swift`
+    - 包含设计中列出的格式保留、专有名词保留、表达提取（最多 3 个）要求
+    - 单元测试：请求体中不包含 App 名称、窗口标题
+    - _需求：4.1~4.5、4.7、11.3、11.4、14.4_
+  - [x] 5.5 实现 Provider 协议与 `OpenAICompatibleProvider`
+    - 定义 `TranslationProvider`、`ProviderCapabilities`、`TranslateEvent`
+    - 编写 `providers.json` 预设（名称、baseURL、推荐模型、协议类型），覆盖需求列出的全部服务商
+    - SSE 流式请求、`stream_options.include_usage`、30 秒首字节超时、按设计表格映射中文错误信息
+    - 用量写入 `usage_stats`（无用量字段时按字符数估算）
+    - 用可注入的假 `HTTPTransport` 测试：正常流、各类 HTTP 错误、超时、用量解析
+    - _需求：4.6、4.8、4.9、7.1、7.2、7.8_
+  - [x] 5.6 实现 `AnthropicProvider`
+    - Messages API 流式请求与错误映射，复用 `StreamParser`
+    - 假 `HTTPTransport` 测试
+    - _需求：7.1_
+  - [x] 5.7 实现讲解请求
+    - 两个 Provider 实现 `explain`，流式返回 Markdown
+    - _需求：11.1、11.3、11.4_
+  - [x] 5.8 实现 `KeychainStore` 与测试连接
+    - API Key 以 Generic Password 存取（service `app.globtype.provider`）
+    - `testConnection` 发送最小请求并返回中文结果
+    - _需求：7.3、7.4_
+  - [x] 5.9 实现 `AppleTranslationProvider`（App 内）
+    - 不可见的 SwiftUI 宿主视图 + `.translationTask`，源 `zh-Hans`、目标 `en`
+    - `LanguageAvailability` 检查语言包，未安装时调用 `prepareTranslation()`
+    - 能力标记为不支持流式、重新生成、讲解、表达提取、润色
+    - _需求：7.5、7.6、7.7_
+
+- [x] 6. 悬浮面板与翻译流程
+  - [x] 6.1 实现 `PanelController` 与 Toast
+    - 非激活 `NSPanel`（`canBecomeKey` 返回 false，`.popUpMenu` 层级，跨桌面显示）
+    - 定位规则：光标矩形 → 元素矩形 → 鼠标位置，按屏幕可见区域翻转与平移
+    - 1.5 秒自动消失的 Toast 窗口，定位规则相同
+    - _需求：5.1、5.2、5.3、5.4_
+  - [x] 6.2 实现 `PanelView`
+    - 状态：加载中、流式生成中、已完成、错误（中文原因 + "重试（R）"）、原文已变化确认
+    - 顶部显示模式（翻译 / 润色）与服务商名；底部显示快捷键提示；讲解区可展开收起
+    - Apple 翻译时显示"配置 API Key 可解锁更多功能"，英文输入时显示"润色需要配置 API Key"
+    - _需求：4.9、5.12、7.6、11.5_
+  - [x] 6.3 实现 `PanelKeyInterceptor`
+    - 面板可见时在 event tap 中处理 Enter、⌥Enter、R、Tab、Esc、⌘C 并吞掉；其他按键关闭面板并照常传递
+    - 译文未完成时 Enter、⌥Enter、Tab、⌘C 被吞掉但不生效
+    - 面板外鼠标点击关闭面板，事件照常传递
+    - 面板可见时双击 Shift 触发重新生成
+    - _需求：5.5~5.11_
+  - [x] 6.4 实现 `TranslationCoordinator`
+    - 按设计状态机编排：读取 → 校验（空文本、超过 5000 字符给出 Toast）→ 模式判定 → 生成 → 就绪 → 回填
+    - 重新生成（temperature 0.9，附上一版译文）；进入空闲时取消请求
+    - Tab 时懒请求讲解并缓存到当前会话
+    - 回填前检查原文是否变化，变化时由用户选择；回填结果为 `.fallbackCopied` 时 Toast 提示
+    - 此阶段先不接入记录，预留 `onAccepted(record: Bool)` 钩子
+    - _需求：3.6、3.7、5.7、6.7、11.1、11.2、11.5_
+  - [x] 6.5 实现设置窗口：通用与翻译服务商
+    - 通用页：自定义快捷键（自研录制控件，由 event tap 匹配）、排除 App 列表、登录时启动（`SMAppService`）
+    - 服务商页：选择预设、编辑 baseURL 与模型、输入 Key（存钥匙串）、测试连接、本月调用次数与 token 用量
+    - _需求：1.5、1.6、7.1~7.4、7.8、13.3_
+
+- [ ] 7. 检查点：翻译主流程可用
+  - 确认 `swift test` 与 `Scripts/bundle.sh` 全部通过
+  - 请用户在日常 App 中试用翻译、润色、重新生成、讲解、回填、撤销，反馈问题后再进入学习层
+
+- [x] 8. 学习层核心（Core）
+  - [x] 8.1 实现 `Normalizer` 与 `PrivacyFilter`
+    - 归一化：去首尾空白、全角转半角、中文标点统一、合并空白
+    - 隐私过滤：邮箱、身份证号（含出生日期校验）、银行卡号（Luhn 校验）、手机号（含 +86 前缀），按设计顺序匹配
+    - 单元测试：正例与反例、幂等性（正确性属性 3、4、5）
+    - _需求：9.3、9.4_
+  - [x] 8.2 实现本地词典
+    - `Scripts/build_dictionary.py`：下载 ECDICT，保留 `word`、`phonetic`、`translation`、`tag`、`frq`，只保留带考试标签或词频前 5 万的词条，输出 `dictionary.sqlite`（目标 10MB 以内）
+    - `Dictionary.lookup` 只读查询，词典缺失时优雅降级
+    - 在 `THIRD_PARTY_NOTICES.md` 中加入 ECDICT 许可声明
+    - _需求：10.3、10.8_
+  - [x] 8.3 实现 `CardSelector`
+    - 排除中考/高考单词、已屏蔽表达、空串或超过 60 字符的表达；短语优先；每条记录最多 3 个
+    - 单元测试
+    - _需求：10.1、10.2、10.3、10.5_
+  - [x] 8.4 实现 `Scheduler` 与每日上限
+    - 简化 SM-2：新卡当天到期；记得间隔翻倍（最小 1 天，最长 365 天）；忘了间隔归 0、当天重新到期；太简单写入 `blocked_expressions`
+    - 每日上限（默认 10）与 `pending` 按创建时间补入；手动卡片不计入上限
+    - 到期排序：今天已答过（忘了）的卡片排在同日到期卡片最后、按作答先后排列；其余卡片中使用次数 ≥ 3 的排最前
+    - 数据库 v3 迁移：`cards` 新增 `last_reviewed_at`
+    - 单元测试：间隔序列与上限、随机作答序列（正确性属性 6）、每日上限（正确性属性 7）、跨天补入、忘了后的排序、v2 → v3 迁移
+    - _需求：10.6、10.7、12.1、12.8_
+  - [x] 8.5 实现 `LearningService`
+    - `record`：不记录 App 检查 → 隐私过滤 → 归一化去重合并（`use_count + 1`）→ 选卡 → 写入卡片与上下文，全部在一个事务内
+    - 单词卡从词典补音标与释义，短语卡使用模型返回的释义
+    - `attachExplanation`、`usageCount`、`dueCards`、`review`、`addManualCard`
+    - 单元测试：去重合并、不记录 App、事务失败回滚、手动添加
+    - _需求：9.1、9.2、9.3、9.4、9.7、10.4、10.8、10.9、10.10、10.11、11.6、12.8_
+  - [x] 8.6 在翻译流程中接入记录
+    - Enter / 点击接受时调用 `record`，⌥Enter 不调用；数据库失败不影响回填
+    - 讲解已生成时一并保存
+    - 表达返回后查询使用次数，≥ 3 时在面板显示"这个表达你已经查过 N 次了"
+    - _需求：5.5、5.6、9.1、11.6、12.8_
+
+- [x] 9. 学习层界面
+  - [x] 9.1 面板内复习卡片
+    - 有到期卡片时在面板底部显示一行中文释义；点击"查看"展开英文、原句与"记得 / 忘了"按钮（只响应鼠标）
+    - _需求：12.2、12.3、12.4_
+  - [x] 9.2 复习窗口
+    - 闪卡：正面中文释义与中文原句（长文本只显示包含表达的那一句），空格或点击翻面显示英文、音标、英文译句
+    - "忘了 / 记得 / 太简单"按钮及 1/2/3 快捷键
+    - 回答"忘了"的卡片追加到本轮末尾再考一次
+    - _需求：10.5、12.1、12.6、12.7、12.10_
+  - [x] 9.3 菜单栏复习入口
+    - 菜单显示"今日复习（N）"，点击打开复习窗口；菜单补全"打开表达库"
+    - _需求：12.5、13.2_
+  - [x] 9.4 表达库窗口
+    - 关键词检索（FTS / LIKE）、来源 App 与时间范围筛选
+    - 详情显示原文、译文、讲解、关联表达；在译文中选中文字"加入复习"
+    - 删除单条、按时间范围删除、清空全部（均需二次确认）
+    - _需求：9.5、9.6、10.11_
+  - [x] 9.5 设置窗口：学习与数据
+    - 学习页：每日新卡上限、不记录的 App 列表
+    - 数据页：按时间范围删除、清空全部
+    - 关于页：版本号、开源许可
+    - _需求：9.2、9.6、10.6_
+
+- [x] 10. 首次启动引导
+  - [x] 10.1 实现引导窗口
+    - 步骤：欢迎 → 辅助功能 → 输入监控（实时检测，授予后自动下一步）→ 唤起方式（双击 Shift / 自定义快捷键，附输入法兼容说明）→ 翻译服务商（可跳过）→ 不记录 App 建议列表（匹配已安装的常见银行、密码管理器）→ 完成
+    - 首次启动自动显示，完成状态存入 `SettingsStore`
+    - _需求：1.4、8.1、8.2、8.4、8.5、8.6_
+
+- [x] 11. 隐私审计
+  - [x] 11.1 检查日志与网络
+    - 审查所有 `os.Logger` 调用，确保不输出源文本、译文、Key
+    - 测试：Provider 只向配置的 baseURL 发起请求；项目中不存在其他网络请求代码
+    - _需求：14.1、14.2、14.3_
+
+- [x] 12. 发布准备
+  - [x] 12.1 完善文档与发布脚本
+    - README：功能介绍、安装与放行、权限说明、服务商配置、隐私说明、从源码构建
+    - `THIRD_PARTY_NOTICES.md` 列出第三方数据许可（无第三方代码依赖）
+    - `release.sh` 打包时包含 `dictionary.sqlite` 与 `providers.json`，用固定证书签名
+    - _需求：8.7、8.8_
+
+- [ ] 13. 最终检查点
+  - 确认 `swift test`、`Scripts/bundle.sh`、`release.sh` 全部成功
+  - 对照 `requirements.md` 逐条确认验收标准，列出未满足或需后续处理的项目，与用户确认
+
+- [x] 14. 学习中心（需求 15~17）
+  - [x] 14.1 数据层：迁移 v2 `daily_stats`；`record` / `review` 累加统计；`stats`、`dailyActivity`、`expressions`、`contexts`、`restoreReview`、`stopReviewing`；单元测试（正确性属性 9、10）
+    - _需求：16.1~16.3、16.7、17.1~17.5_
+  - [x] 14.2 学习中心窗口骨架：`LearningCenterState`、侧边栏与角标、菜单栏入口改为跳转对应页面、窗口打开时显示程序坞图标
+    - _需求：13.2、15.1、15.2、15.4、15.6、15.7_
+  - [x] 14.3 概览页：统计卡、14 天图表、最常用表达、最近翻译跳转、空状态说明
+    - _需求：16.1~16.6_
+  - [x] 14.4 复习页与表达库页嵌入：复习视图改为自适应尺寸；表达库改为 `HSplitView` 并支持外部指定选中记录
+    - _需求：15.1、16.5_
+  - [x] 14.5 我的表达页：检索、状态筛选、详情与上下文、恢复复习 / 不再复习
+    - _需求：17.1~17.5_
+  - [x] 14.6 启动与重新打开行为、应用图标
+    - _需求：15.3、15.5、15.8_
+  - [x] 14.7 构建、测试、打包、安装
