@@ -19,6 +19,18 @@ BUILD_NUMBER="${GLOBTYPE_BUILD:-1}"
 
 source "$ROOT/Scripts/swift-env.sh"
 
+DICT="$ROOT/Sources/Globtype/Resources/dictionary.sqlite"
+# 词典不入库（约 5MB，由 ECDICT 生成），首次打包时自动生成。
+# 跳过：GLOBTYPE_SKIP_DICT=1（缺词典时单词卡没有音标，基础词过滤不可用，但 App 能正常运行）
+if [[ ! -f "$DICT" && "${GLOBTYPE_SKIP_DICT:-0}" != "1" ]]; then
+  echo "▸ 生成 dictionary.sqlite（首次需下载 ECDICT，约 65MB，已缓存则直接复用）"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "⚠︎ 未找到 python3，跳过词典生成"
+  elif ! python3 "$ROOT/Scripts/build_dictionary.py"; then
+    echo "⚠︎ 词典生成失败（通常是网络问题），本次打包将不包含词典"
+  fi
+fi
+
 cd "$ROOT"
 if [[ "${GLOBTYPE_UNIVERSAL:-0}" == "1" ]]; then
   # 通用二进制：分别编译 Apple 芯片与 Intel 版本，再用 lipo 合并
@@ -44,8 +56,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Globtype"
 cp "$ROOT/Sources/Globtype/Resources/providers.json" "$APP/Contents/Resources/"
 cp "$ROOT/Sources/Globtype/Resources/AppIcon.icns" "$APP/Contents/Resources/"
-if [[ -f "$ROOT/Sources/Globtype/Resources/dictionary.sqlite" ]]; then
-  cp "$ROOT/Sources/Globtype/Resources/dictionary.sqlite" "$APP/Contents/Resources/"
+if [[ -f "$DICT" ]]; then
+  cp "$DICT" "$APP/Contents/Resources/"
 else
   echo "⚠︎ 未找到 dictionary.sqlite，单词卡将没有音标，基础词过滤不可用。运行 Scripts/build_dictionary.py 生成。"
 fi

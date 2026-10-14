@@ -76,21 +76,24 @@ Globtype 会硬性跳过密码框和系统安全输入状态，不读取其中�
 # 运行单元测试
 swift test
 
-# 生成本地词典（下载 ECDICT，约 65MB，生成约 5MB 的 dictionary.sqlite）
-python3 Scripts/build_dictionary.py
-
 # 打包 build/Globtype.app
+# 首次打包会自动生成本地词典（下载 ECDICT 约 65MB，产出约 5MB 的 dictionary.sqlite）
+# 不想要词典可以跳过：GLOBTYPE_SKIP_DICT=1 Scripts/bundle.sh
 Scripts/bundle.sh
 ```
+
+词典只影响单词卡的音标和基础词过滤，缺失时 App 仍可正常运行。`swift build` 与 `swift test` 不需要词典。
 
 `Scripts/swift-env.sh` 会优先使用 `~/Library/Developer/Toolchains/swift-latest.xctoolchain`，也可以用 `GLOBTYPE_SWIFT=/path/to/swift` 指定。
 
 ### 签名
 
-辅助功能与输入监控权限绑定在代码签名上。`bundle.sh` 在找不到证书时使用临时签名，**每次重新构建后都需要重新授权**（在系统设置中移除旧的 Globtype 条目后再添加）。运行 `Scripts/create_signing_cert.sh` 可以一步创建固定的自签名证书（手动方式见 [Scripts/create_signing_cert.md](Scripts/create_signing_cert.md)），之后每次打包都使用它，权限不会丢失。发布：
+辅助功能与输入监控权限绑定在代码签名上。`bundle.sh` 在找不到证书时使用临时签名，**每次重新构建后都需要重新授权**（在系统设置中移除旧的 Globtype 条目后再添加）。运行 `Scripts/create_signing_cert.sh` 可以一步创建固定的自签名证书（手动方式见 [Scripts/create_signing_cert.md](Scripts/create_signing_cert.md)），之后每次打包都使用它，权限不会丢失。
+
+发布（打包 + 创建 GitHub Release 并上传 zip，详见 [docs/distribution.md](docs/distribution.md)）：
 
 ```bash
-GLOBTYPE_VERSION=0.1.0 Scripts/release.sh
+GLOBTYPE_VERSION=0.1.0 GLOBTYPE_PUBLISH=1 Scripts/release.sh
 ```
 
 ### 诊断模式

@@ -15,7 +15,7 @@ Globtype 不使用付费的 Apple 开发者账号，不经过苹果公证，而�
 | 项目 | 说明 |
 |---|---|
 | Swift 工具链 | Command Line Tools + Swift 6.0 及以上，`Scripts/swift-env.sh` 会自动选择 |
-| 本地词典 | `python3 Scripts/build_dictionary.py`，生成 `Sources/Globtype/Resources/dictionary.sqlite`（约 5MB，不入库） |
+| 本地词典 | 无需手动准备：`bundle.sh` 与 `release.sh` 在缺少 `Sources/Globtype/Resources/dictionary.sqlite`（约 5MB，不入库）时会自动调用 `Scripts/build_dictionary.py` 生成，首次需下载 ECDICT（约 65MB，缓存在 `build/ecdict.csv`） |
 | 签名证书 | `Scripts/create_signing_cert.sh`，创建 `Globtype Self-Signed` 证书并导入登录钥匙串 |
 
 **证书是分发的关键。** macOS 把辅助功能、输入监控权限绑定在 App 的签名上：
@@ -34,6 +34,7 @@ GLOBTYPE_VERSION=0.1.0 GLOBTYPE_BUILD=1 Scripts/release.sh
 
 脚本依次执行：
 
+0. 缺少词典时自动生成（发布版本必须包含词典，生成失败即停止）
 1. 运行全部单元测试，失败即停止
 2. 分别编译 Apple 芯片（arm64）和 Intel（x86_64）版本，合并为通用二进制
 3. 组装 `Globtype.app`，放入词典、服务商预设和图标
@@ -152,23 +153,24 @@ git push -u origin main
 
 ### 每次发版
 
-```bash
-GLOBTYPE_VERSION=0.1.1 GLOBTYPE_BUILD=2 Scripts/release.sh
-git tag v0.1.1
-git push origin v0.1.1
-```
-
-然后在 GitHub 仓库的 **Releases → Draft a new release** 中选择该标签，上传 `build/Globtype-0.1.1.zip`，在说明里写上：
-
-- 本版改动
-- zip 的 SHA-256（`release.sh` 最后打印的那行）
-- 安装说明链接（指向本文第二部分）
-
-已安装了 GitHub CLI 的话，也可以一步完成：
+先提交所有改动（标签会指向当前提交），然后一条命令完成打包与发布：
 
 ```bash
-gh release create v0.1.1 build/Globtype-0.1.1.zip --title "Globtype 0.1.1" --notes "本版改动……"
+GLOBTYPE_VERSION=0.1.1 GLOBTYPE_BUILD=2 GLOBTYPE_PUBLISH=1 Scripts/release.sh
 ```
+
+`GLOBTYPE_PUBLISH=1` 会创建标签 `v0.1.1`、新建 GitHub Release 并上传 zip，说明里自动带上 SHA-256 和安装指引。不加这个变量时只打包，不碰远端。
+
+发布需要 GitHub API 认证（SSH 密钥不能用于 API），二选一：
+
+```bash
+brew install gh && gh auth login      # 方式一：GitHub CLI
+export GITHUB_TOKEN=<有 repo 权限的 token>   # 方式二：https://github.com/settings/tokens
+```
+
+发布前脚本会检查：工作区是否干净、远端是否已存在同名标签。发布后本地没有该标签，用 `git fetch --tags` 拉回。
+
+想手工发布也可以：跑不带 `GLOBTYPE_PUBLISH` 的 `release.sh`，然后在 GitHub 的 **Releases → Draft a new release** 里上传 `build/Globtype-0.1.1.zip`，说明里写上本版改动、zip 的 SHA-256 和安装说明链接。
 
 ### 暂不支持的分发方式
 
